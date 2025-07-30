@@ -9,165 +9,198 @@ import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
+load_dotenv()
 key = os.getenv("KEY")
 api_host = os.getenv("API_HOST")
+
 CONFIG_FILE = "like_channels.json"
 
 class LikeCommands(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-        self.api_host = api_host
-        self.config_data = self.load_config()
-        self.cooldowns = {}
-        self.session = aiohttp.ClientSession()
+   def __init__(self, bot: commands.Bot):
+       self.bot = bot
+       self.api_url = api_host
+       self.session = aiohttp.ClientSession()
+       self.cooldowns = {}
+       self.config_data = self._load_config()
 
 
 
-    def load_config(self):
-        default_config = {
-            "servers": {}
-        }
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r') as f:
-                    loaded_config = json.load(f)
-                    loaded_config.setdefault("servers", {})
-                    return loaded_config
-            except json.JSONDecodeError:
-                print(f"WARNING: The configuration file '{CONFIG_FILE}' is corrupt or empty. Resetting to default configuration.")
-        self.save_config(default_config)
-        return default_config
+   def _load_config(self) -> dict:
+       if os.path.exists(CONFIG_FILE):
+           try:
+               with open(CONFIG_FILE, "r") as f:
+                   data = json.load(f)
+                   data.setdefault("servers", {})
+                   return data
+           except json.JSONDecodeError:
+               print(f"[WARN] Corrupt config file '{CONFIG_FILE}', resetting.")
+       # Default fallback
+       default = {"servers": {}}
+       self._save_config(default)
+       return default
 
-    def save_config(self, config_to_save=None):
-        data_to_save = config_to_save if config_to_save is not None else self.config_data
-        temp_file = CONFIG_FILE + ".tmp"
-        with open(temp_file, 'w') as f:
-            json.dump(data_to_save, f, indent=4)
-        os.replace(temp_file, CONFIG_FILE)
+   def _save_config(self, config: dict = None):
+       config = config or self.config_data
+       temp_file = CONFIG_FILE + ".tmp"
+       with open(temp_file, "w") as f:
+           json.dump(config, f, indent=4)
+       os.replace(temp_file, CONFIG_FILE)
 
-    async def check_channel(self, ctx):
-        if ctx.guild is None:
-            return True
-        guild_id = str(ctx.guild.id)
-        like_channels = self.config_data["servers"].get(guild_id, {}).get("like_channels", [])
-        return not like_channels or str(ctx.channel.id) in like_channels
+   async def check_channel(self, ctx: commands.Context) -> bool:
+       if ctx.guild is None:
+           return True
+       allowed_channels = self.config_data["servers"].get(str(ctx.guild.id), {}).get("like_channels", [])
+       return not allowed_channels or str(ctx.channel.id) in allowed_channels
 
-    async def cog_load(self):
-        pass
+   async def cog_unload(self):
+       await self.session.close()
 
-    @commands.hybrid_command(name="setlikechannel", description="Sets the channels where the /like command is allowed.")
-    @commands.has_permissions(administrator=True)
-    @app_commands.describe(channel="The channel to allow/disallow the /like command in.")
-    async def set_like_channel(self, ctx: commands.Context, channel: discord.TextChannel):
-        if ctx.guild is None:
-            await ctx.send("This command can only be used in a server.", ephemeral=True)
-            return
+   # ──────────────── SETLIKECHANNEL COMMAND ──────────────── #
 
-        guild_id = str(ctx.guild.id)
-        server_config = self.config_data["servers"].setdefault(guild_id, {})
-        like_channels = server_config.setdefault("like_channels", [])
+   @commands.hybrid_command(name="setlikechannel", description="Allow or block the use of /like in a specific channel.")
+   @commands.has_permissions(administrator=True)
+   @app_commands.describe(channel="Channel to toggle access for /like command.")
+   async def set_like_channel(self, ctx: commands.Context, channel: discord.TextChannel):
+       if not ctx.guild:
+           return await ctx.send("This command must be used in a server.", ephemeral=True)
 
-        channel_id_str = str(channel.id)
+       guild_id = str(ctx.guild.id)
+       server_cfg = self.config_data["servers"].setdefault(guild_id, {})
+       like_channels = server_cfg.setdefault("like_channels", [])
+       channel_id = str(channel.id)
 
-        if channel_id_str in like_channels:
-            like_channels.remove(channel_id_str)
-            self.save_config()
-            await ctx.send(f"✅ Channel {channel.mention} has been **removed** from allowed channels for /like commands. The command is now **disallowed** there.", ephemeral=True)
-        else:
-            like_channels.append(channel_id_str)
-            self.save_config()
-            await ctx.send(f"✅ Channel {channel.mention} is now **allowed** for /like commands. The command will **only** work in specified channels if any are set.", ephemeral=True)
+       if channel_id in like_channels:
+           like_channels.remove(channel_id)
+           message = f" {channel.mention} removed from allowed channels."
+       else:
+           like_channels.append(channel_id)
+           message = f"✅ {channel.mention} is now allowed for `/like`."
 
-    @commands.hybrid_command(name="like", description="Sends likes to a Free Fire player")
-    @app_commands.describe(uid="Player UID (numbers only, minimum 6 characters)")
-    async def like_command(self, ctx: commands.Context, uid: str):
-        is_slash = ctx.interaction is not None
+       self._save_config()
+       await ctx.send(message, ephemeral=True)
 
-        if not await self.check_channel(ctx):
-            msg = "This command is not available in this channel. Please use it in an authorized channel."
-            if is_slash:
-                await ctx.response.send_message(msg, ephemeral=True)
-            else:
-                await ctx.reply(msg, mention_author=False)
-            return
+   # ──────────────── LIKE COMMAND ──────────────── #
 
-        user_id = ctx.author.id
-        cooldown = 30
-        if user_id in self.cooldowns:
-            last_used = self.cooldowns[user_id]
-            remaining = cooldown - (datetime.now() - last_used).seconds
-            if remaining > 0:
-                await ctx.send(f"Please wait {remaining} seconds before using this command again.", ephemeral=is_slash)
-                return
-        self.cooldowns[user_id] = datetime.now()
+   @commands.hybrid_command(name="like", description="Send likes to a Free Fire player.")
+   @app_commands.describe(
+       uid="Player UID (numbers only, at least 6 digits)",
+       region="Region (e.g., ME, IND, BR, US)"
+   )
+   async def like_command(self, ctx: commands.Context, region: str = None, uid: str = None):
+       is_slash = ctx.interaction is not None
 
-        if not uid.isdigit() or len(uid) < 6:
-            await ctx.reply("Invalid UID. It must contain only numbers and be at least 6 characters long.", mention_author=False, ephemeral=is_slash)
-            return
+       # Permissions check
+       if not await self.check_channel(ctx):
+           return await ctx.send(" This command is not available in this channel.", ephemeral=is_slash)
 
+       # Cooldown check
+       # cooldown = 30
+       # user_id = ctx.author.id
+       # last_used = self.cooldowns.get(user_id)
+       # if last_used:
+       #     remaining = cooldown - (datetime.now() - last_used).seconds
+       #     if remaining > 0:
+       #         return await ctx.send(
+       #             f"⏳ {ctx.author.mention}, please wait `{remaining}`s before retrying.",
+       #             ephemeral=is_slash
+       #         )
+       # self.cooldowns[user_id] = datetime.now()
 
-        try:
-            async with ctx.typing():
-                async with self.session.get(f"{self.api_host}/like?uid={uid}&key={key}") as response:
-                    if response.status == 404:
-                        await self._send_player_not_found(ctx, uid)
-                        return
-                    if response.status == 429:
+       # Input validation
+       if uid is None and region and region.isdigit():
+           uid, region = region, None
+
+       if not region or not uid:
+           return await ctx.send("Please specify the region and UID.\nExample: `!like me 12345678`", ephemeral=is_slash)
+
+       region_map = {
+           "ind": "ind",
+           "br": "nx", "us": "nx", "sac": "nx", "na": "nx"
+       }
+       region_server = region_map.get(region.lower(), "ag")
+
+       try:
+           async with ctx.typing():
+            
+               async with self.session.get(f"{self.api_url}/like?uid={uid}&region={region_server}&key={key}") as resp:
+                    if resp.status == 404:
+                       return await self._send_player_not_found(ctx, uid, ephemeral=is_slash)
+                   
+                    elif resp.status == 429:
                         await self._send_api_limit_reached(ctx)
                         return
-                    if response.status != 200:
-                        print(f"API Error: {response.status} - {await response.text()}")
-                        await self._send_api_error(ctx)
-                        return
+                    elif resp.status != 200:
+                       print(f"[ERROR] API {resp.status} - {await resp.text()}")
+                       return await self._send_api_error(ctx, ephemeral=is_slash)
 
-                    data = await response.json()
-                    embed = discord.Embed(
-                        title="FREE FIRE LIKE",
-                        color=0x2ECC71 if data.get("status") == 1 else 0xE74C3C,
-                        timestamp=datetime.now()
-                    )
-                    
-                    key_details=data.get("api_key_details",{})
-                    current_usage = key_details.get("current_usage",{})
-                    usage_limit=key_details.get("usage_limit",{})
-                    
-                    if usage_limit != "null":
-                        remaining = f"{current_usage}/{usage_limit}"
+                    data = await resp.json()
+                    await self._build_response_embed(ctx, data, region, is_slash)
 
-                    else:
-                        remaining = "UNLIMITED QUOTA"
-   
+       except asyncio.TimeoutError:
+           await self._send_error_embed(ctx, "Timeout", "The server did not respond in time.", ephemeral=is_slash)
+       except Exception as e:
+           print(f"[CRITICAL] Unexpected error: {e}")
+           await self._send_error_embed(ctx, "Error", "An unexpected error occurred.", ephemeral=is_slash)
 
-                    if data.get("status") == 1:
-                        embed.description = (
-                            f"\n"
-                            f"┌  ACCOUNT\n"
-                            f"├─ NICKNAME: {data.get('player', 'Unknown')}\n"
-                            f"├─ UID: {uid}\n"
-                            f"└─ RESULT:\n"
-                            f"   ├─ ADDED: +{data.get('likes_added', 0)}\n"
-                            f"   ├─ BEFORE: {data.get('likes_before', 'N/A')}\n"
-                            f"   └─ AFTER: {data.get('likes_after', 'N/A')}\n"
-                        )
-                    else:
-                        embed.description = "\n┌MAX LIKES\n└─This UID has already received the maximum likes today.\n"
+   # ──────────────── EMBED HELPERS ──────────────── #
 
-                    embed.set_footer(text="DEVELOPED BY THUG")
-                    embed.description += f"\nREMAINING: {remaining}"
-                    await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash)
+   async def _build_response_embed(self, ctx: commands.Context, data: dict, region: str, ephemeral: bool):
+       embed = discord.Embed(
+           title="FREE FIRE LIKE",
+           timestamp=datetime.now(),
+           color=0x2ECC71 if data.get("status") == 1 else 0xE74C3C
+       )
+       if data.get("status") == 1:
+           player = data.get("player", {})
+           likes = data.get("likes", {})
+           
 
-        except asyncio.TimeoutError:
-            await self._send_error_embed(ctx, "Timeout", "The server took too long to respond.", ephemeral=is_slash)
-        except Exception as e:
-            print(f"Unexpected error in like_command: {e}")
-            await self._send_error_embed(ctx, "⚡ Critical Error", "An unexpected error occurred. Please try again later.", ephemeral=is_slash)
 
-    async def _send_player_not_found(self, ctx, uid):
-        embed = discord.Embed(title="❌ Player Not Found", description=f"The UID {uid} does not exist or is not accessible.", color=0xE74C3C)
-        embed.add_field(name="Tip", value="Make sure that:\n- The UID is correct\n- The player is not private", inline=False)
-        await ctx.send(embed=embed, ephemeral=True)
-        
-    async def _send_api_limit_reached(self, ctx):
+           embed.description = (
+               "┌─ ACCOUNT\n"
+               f"│   ├─ NICKNAME : {player.get('nickname', 'Unknown')}\n"
+               f"│   ├─ UID      : {player.get('uid', 'Unknown')}\n"
+               f"│   ├─ REGION   : {player.get('region', region.upper())}\n"
+               " │   └─ RESULT\n"
+               f"│       ├─ ADDED  : +{likes.get('added_by_api', 0)}\n"
+               f"│       ├─ BEFORE : {likes.get('before', 'N/A')}\n"
+               f"│       └─ AFTER  : {likes.get('after', 'N/A')}\n"
+               
+           )
+       else:
+           embed.description = (
+               f"MAX LIKES\nThis UID has already received the maximum likes today."
+           )
+       embed.set_footer(text="DEVELOPED BY THUG")
+       
+
+
+       await ctx.send(embed=embed, ephemeral=ephemeral)
+
+   async def _send_player_not_found(self, ctx, uid, ephemeral=True):
+       embed = discord.Embed(
+           title="Player Not Found",
+           description=f"UID `{uid}` not found or inaccessible.\n",
+           color=0xE74C3C
+       )
+       embed.add_field(name="Tips", value="• Check the UID\n• Try a different region", inline=False)
+       await ctx.send(embed=embed, ephemeral=ephemeral)
+
+   async def _send_api_error(self, ctx, ephemeral=True):
+       embed = discord.Embed(
+           
+           description=f"{ctx.author.mention} Failed to process request — try again later.",
+           color=0xF39C12
+       )
+       await ctx.send(embed=embed, ephemeral=ephemeral)
+
+   async def _send_error_embed(self, ctx, title: str, description: str, ephemeral=True):
+       embed = discord.Embed(title=title, description=description, color=0xE74C3C)
+       await ctx.send(embed=embed, ephemeral=ephemeral)
+       
+    
+    
+   async def _send_api_limit_reached(self, ctx):
         embed = discord.Embed(
             title="Api Limit Reached",
             description="Likes are temporarily disabled.",
@@ -181,19 +214,7 @@ class LikeCommands(commands.Cog):
         embed.set_footer(text="Api key recharge required.")
         await ctx.send(embed=embed, ephemeral=True)
 
+# ─────────────────── SETUP FUNCTION ─────────────────── #
 
-    async def _send_api_error(self, ctx):
-        embed = discord.Embed(title="⚠️ Service Unavailable", description="The Free Fire API is not responding at the moment.", color=0xF39C12)
-        embed.add_field(name="Solution", value="Try again in a few minutes.", inline=False)
-        await ctx.send(embed=embed, ephemeral=True)
-
-    async def _send_error_embed(self, ctx, title, description, ephemeral=True):
-        embed = discord.Embed(title=f"❌ {title}", description=description, color=discord.Color.red(), timestamp=datetime.now())
-        embed.set_footer(text="An error occurred.")
-        await ctx.send(embed=embed, ephemeral=ephemeral)
-
-    def cog_unload(self):
-        self.bot.loop.create_task(self.session.close())
-
-async def setup(bot):
-    await bot.add_cog(LikeCommands(bot))
+async def setup(bot: commands.Bot):
+   await bot.add_cog(LikeCommands(bot))

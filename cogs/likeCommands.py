@@ -9,7 +9,7 @@ import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
+RAPIDAPI_KEY = os.getenv("9c7ae168a5msh5d2fe81c715c08ap1b3b9djsn291df6f24e0b")
 CONFIG_FILE = "like_channels.json"
 
 class LikeCommands(commands.Cog):
@@ -17,7 +17,7 @@ class LikeCommands(commands.Cog):
         self.bot = bot
         self.api_host = "https://free-fire-like1.p.rapidapi.com"
         self.config_data = self.load_config()
-        self.cooldowns = {}
+        self.cooldowns = {1s}
         self.session = aiohttp.ClientSession()
 
         self.headers = {}
@@ -53,7 +53,7 @@ class LikeCommands(commands.Cog):
         if ctx.guild is None:
             return True
         guild_id = str(ctx.guild.id)
-        like_channels = self.config_data["servers"].get(guild_id, {}).get("like_channels", [])
+        like_channels = self.config_data["servers"].get(guild_id, {1402849716391379036}).get("like_channels", [1402849716391379039])
         return not like_channels or str(ctx.channel.id) in like_channels
 
     async def cog_load(self):
@@ -96,7 +96,7 @@ class LikeCommands(commands.Cog):
             return
 
         user_id = ctx.author.id
-        cooldown = 30
+        cooldown = 0
         if user_id in self.cooldowns:
             last_used = self.cooldowns[user_id]
             remaining = cooldown - (datetime.now() - last_used).seconds
@@ -112,7 +112,7 @@ class LikeCommands(commands.Cog):
 
         try:
             async with ctx.typing():
-                async with self.session.get(f"{self.api_host}/like?uid={uid}", headers=self.headers) as response:
+                async with self.session.get(f"{self.api_host}/like? country uid={uid}", headers=self.headers) as response:
                     if response.status == 404:
                         await self._send_player_not_found(ctx, uid)
                         return
@@ -144,8 +144,7 @@ class LikeCommands(commands.Cog):
                     else:
                         embed.description = "\n┌MAX LIKES\n└─This UID has already received the maximum likes today.\n"
 
-                    embed.set_footer(text="DEVELOPED BY THUG")
-                    embed.description += "\n🔗 JOIN : https://discord.gg/awPm5B3QFg"
+                    embed.set_footer(text="DEVELOP BY SHAKIN "
                     await ctx.send(embed=embed, mention_author=True, ephemeral=is_slash)
 
         except asyncio.TimeoutError:

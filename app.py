@@ -17,7 +17,7 @@ bot_name = "None"
 
 @app.route('/')
 def home():
-    return f"Bot {bot_name} is active"
+    return f"Bot {PRIME_X} is active"
 
 
 def run_flask():
@@ -35,7 +35,7 @@ flask_thread.start()
 if os.path.exists(".env"):
     load_dotenv()
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("9c7ae168a5msh5d2fe81c715c08ap1b3b9djsn291df6f24e0b")
 if not TOKEN:
     raise ValueError("TOKEN not found in environment variables")
 
@@ -133,7 +133,7 @@ class Seemu(commands.Bot):
 if __name__ == "__main__":
     try:
         intents = discord.Intents.all()
-        bot = Seemu(command_prefix="!", intents=intents)
+        bot = Seemu(command_prefix="p", intents=intents)
         bot.run(TOKEN)
     except discord.errors.LoginFailure:
         print("❌ Invalid Discord token")

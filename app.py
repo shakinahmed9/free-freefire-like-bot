@@ -17,7 +17,7 @@ bot_name = "None"
 
 @app.route('/')
 def home():
-    return f"Bot {bot_name} is active"
+    return f"Bot {PRIME X} is active"
 
 
 def run_flask():
@@ -37,7 +37,7 @@ if os.path.exists(".env"):
 
 TOKEN = os.getenv("TOKEN")
 if not TOKEN:
-    raise ValueError("TOKEN not found in environment variables")
+    raise ValueError("MTQwMjg0NjUzODcxOTU1OTcwMA.GpiqOI.tZ0DYvAzVH6EcNigSZvaia5TrRqx4L5LBGGOc8")
 
 extensions = [
     "cogs.likeCommands"
@@ -67,7 +67,7 @@ class Seemu(commands.Bot):
         self.update_activity_task.start()
 
     async def on_ready(self):
-        global bot_name
+        global PRIME X
         if not self.initialized:
             return
 
